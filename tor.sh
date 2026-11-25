@@ -18,9 +18,9 @@ PARSED_AUTH="dirauths_parsed.tmp"
 echo "[*] Downloading Onionoo details..."
 curl -sL "$ONIONOO_URL" -o "$JSON_RAW"
 
-echo "[*] Filtering Tor Directory Authorities (Clean JSON Parsing)..."
+echo "[*] Filtering and sorting Tor Directory Authorities by Bandwidth..."
 
-# Safely parse fields and isolate pure IPv4 addresses using jq array logic
+# Extract fields, clean IPv4 filter, and sort numerically by bandwidth descending (-k3,3nr)
 jq -r '
   .relays[] |
   select(.flags != null and (.flags | index("Authority") != null)) |
@@ -28,18 +28,15 @@ jq -r '
   (.running // false) as $running |
   (.advertised_bandwidth // 0) as $bw |
   (.country // "xx") as $country |
-  (.first_seen // "") as $first_seen |
-  # Find the first valid IPv4 or_address entry
   (.or_addresses[]? | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+:[0-9]+$"))) as $addr |
   ($addr | split(":")[0]) as $ip |
   ($addr | split(":")[1]) as $port |
-  "\($nick)|\($running)|\($bw)|\($country)|\($first_seen)|\($ip)|\($port)"
-' "$JSON_RAW" > "$PARSED_AUTH"
+  "\($nick)|\($running)|\($bw)|\($country)|\($ip)|\($port)"
+' "$JSON_RAW" | sort -t'|' -k3,3nr > "$PARSED_AUTH"
 
 rm -f "$JSON_RAW"
 
 TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
-CURRENT_EPOCH=$(date +%s)
 TABLE_ROWS=""
 TOTAL_AUTH=0
 ONLINE_AUTH=0
@@ -47,8 +44,7 @@ TOTAL_BW_BYTES=0
 
 echo "[*] Probing Directory Authorities..."
 
-# Read safely using pipe delimiter '|' to prevent any whitespace or variable shifting issues
-while IFS='|' read -r nick running bw country first_seen ip port; do
+while IFS='|' read -r nick running bw country ip port; do
   [ -z "$nick" ] && continue
   TOTAL_AUTH=$((TOTAL_AUTH + 1))
   TOTAL_BW_BYTES=$((TOTAL_BW_BYTES + bw))
@@ -58,22 +54,6 @@ while IFS='|' read -r nick running bw country first_seen ip port; do
     bw_formatted=$(awk -v b="$bw" 'BEGIN {printf "%.2f MB/s", b / 1048576}')
   else
     bw_formatted="0.00 MB/s"
-  fi
-
-  # Calculate human-readable age/uptime from first_seen
-  uptime_str="Unknown"
-  if [ -n "$first_seen" ]; then
-    seen_epoch=$(date -d "$first_seen" +%s 2>/dev/null || echo 0)
-    if [ "$seen_epoch" -gt 0 ]; then
-      diff_secs=$((CURRENT_EPOCH - seen_epoch))
-      days=$((diff_secs / 86400))
-      hours=$(((diff_secs % 86400) / 3600))
-      if [ "$days" -gt 0 ]; then
-        uptime_str="${days}d ${hours}h"
-      else
-        uptime_str="${hours}h"
-      fi
-    fi
   fi
 
   country_upper=$(echo "$country" | tr '[:lower:]' '[:upper:]')
@@ -108,7 +88,7 @@ while IFS='|' read -r nick running bw country first_seen ip port; do
     fi
   fi
 
-  TABLE_ROWS+="| \`$nick\` | \`$ip:$port\` | $country_upper | $uptime_str | $bw_formatted | $status | $latency |"$'\n'
+  TABLE_ROWS+="| \`$nick\` | \`$ip:$port\` | $country_upper | $bw_formatted | $status | $latency |"$'\n'
 
 done < "$PARSED_AUTH"
 
@@ -122,7 +102,7 @@ echo "[*] Generating README.md dashboard..."
 cat << EOF > "${PREFIX}README.md"
 # 🛡️ Tor Directory Authority Watcher
 
-Automated status monitor tracking health, reachability, country origin, uptime, bandwidth, and response latencies of official **Tor Directory Authorities** via GitHub Actions.
+Automated status monitor tracking health, reachability, country origin, bandwidth, and response latencies of official **Tor Directory Authorities**.
 
 - **Last Checked:** $TIMESTAMP
 - **Total Authorities Tracked:** $TOTAL_AUTH
@@ -131,12 +111,12 @@ Automated status monitor tracking health, reachability, country origin, uptime, 
 
 ## 📊 Live Directory Authority Status
 
-| Nickname | Address & Port | Country | Uptime | Bandwidth | Status | Latency |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| Nickname | Address & Port | Country | Bandwidth | Status | Latency |
+| :--- | :--- | :--- | :--- | :--- | :--- |
 $TABLE_ROWS
 
 ---
-*Auto-updated continuously by GitHub Actions.*
+*Auto-updated continuously.*
 EOF
 
 # --- STATS.md Historical Log ---
@@ -161,4 +141,4 @@ else
   ' "$STATS_MD" > stats_tmp.md && mv stats_tmp.md "$STATS_MD"
 fi
 
-echo "[+] Success! Directory Authority status report updated."
+echo "[+] Success! Directory Authority status report updated and sorted by bandwidth."
