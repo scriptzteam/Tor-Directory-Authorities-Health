@@ -1,0 +1,37 @@
+name: Update Tor Relays Data
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'  # Run every 30 minutes
+  workflow_dispatch:     # Allow manual trigger
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y jq netcat-openbsd
+
+      - name: Update Tor lists
+        run: |
+          chmod +x tor.sh
+          ./tor.sh
+
+      - name: Commit and push changes
+        run: |
+          git config --local user.email "scriptzteam@gmail.com"
+          git config --local user.name "scriptzteam"
+          git add README.md STATS.md
+          if ! git diff --cached --quiet; then
+            echo "Changes detected, committing..."
+            git commit -m "Update Tor Directory Authority status"
+            git push
+          else
+            echo "No changes to commit"
+          fi
