@@ -145,4 +145,4 @@ else
   ' "$STATS_MD" > stats_tmp.md && mv stats_tmp.md "$STATS_MD"
 fi
 
-echo "[+] Success! Directory Authority status report updated with Country and Uptime."
+echo "[+] Success! Directory Authority status report updated."
