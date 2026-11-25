@@ -14,9 +14,41 @@ fi
 STATS_MD="${PREFIX}STATS.md"
 JSON_RAW="onionoo_raw.json"
 PARSED_AUTH="dirauths_parsed.tmp"
+CACHE_FILE="${PREFIX}.last_modified"
+HEADERS_FILE="${PREFIX}headers.tmp"
+TEMP_RAW="${PREFIX}onionoo_raw.tmp"
 
-echo "[*] Downloading Onionoo details..."
-curl -sL "$ONIONOO_URL" -o "$JSON_RAW"
+# Prepare curl arguments (--compressed handles Accept-Encoding: gzip and auto-decompresses plain text for jq)
+CURL_ARGS=("-sL" "-D" "$HEADERS_FILE" "-w" "%{http_code}" "--compressed" "-o" "$TEMP_RAW")
+
+# If both the raw json and timestamp cache exist, add the If-Modified-Since header
+if [ -f "${PREFIX}${JSON_RAW}" ] && [ -f "$CACHE_FILE" ]; then
+  LAST_MODIFIED_VAL=$(cat "$CACHE_FILE")
+  echo "[*] Checking Onionoo for updates (If-Modified-Since: $LAST_MODIFIED_VAL)..."
+  CURL_ARGS+=("-H" "If-Modified-Since: $LAST_MODIFIED_VAL")
+else
+  echo "[*] No local cache found. Downloading fresh Onionoo details..."
+fi
+
+# Execute curl and capture the HTTP status code
+HTTP_CODE=$(curl "${CURL_ARGS[@]}" "$ONIONOO_URL")
+
+if [ "$HTTP_CODE" -eq 304 ]; then
+  echo "[*] Onionoo data is not modified (304 Not Modified). Stopping execution."
+  rm -f "$TEMP_RAW" "$HEADERS_FILE"
+  exit 0
+elif [ "$HTTP_CODE" -eq 200 ]; then
+  echo "[*] New data available (200 OK). Updating cache and raw file..."
+  mv "$TEMP_RAW" "${PREFIX}${JSON_RAW}"
+  
+  # Extract and save the new Last-Modified header value
+  grep -i "^Last-Modified:" "$HEADERS_FILE" | cut -d' ' -f2- | tr -d '\r' > "$CACHE_FILE"
+  rm -f "$HEADERS_FILE"
+else
+  echo "[!] Unexpected HTTP status code: $HTTP_CODE"
+  rm -f "$TEMP_RAW" "$HEADERS_FILE"
+  exit 1
+fi
 
 echo "[*] Filtering and sorting Tor Directory Authorities by Bandwidth..."
 
@@ -32,9 +64,9 @@ jq -r '
   ($addr | split(":")[0]) as $ip |
   ($addr | split(":")[1]) as $port |
   "\($nick)|\($running)|\($bw)|\($country)|\($ip)|\($port)"
-' "$JSON_RAW" | sort -t'|' -k3,3nr > "$PARSED_AUTH"
+' "${PREFIX}${JSON_RAW}" | sort -t'|' -k3,3nr > "$PARSED_AUTH"
 
-rm -f "$JSON_RAW"
+rm -f "${PREFIX}${JSON_RAW}"
 
 TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
 TABLE_ROWS=""
