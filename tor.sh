@@ -18,23 +18,22 @@ PARSED_AUTH="dirauths_parsed.tmp"
 echo "[*] Downloading Onionoo details..."
 curl -sL "$ONIONOO_URL" -o "$JSON_RAW"
 
-echo "[*] Filtering Tor Directory Authorities (IPv4 & Clean Parsing)..."
+echo "[*] Filtering Tor Directory Authorities (Clean JSON Parsing)..."
 
-# Strictly isolate IPv4 address and exact OR port using safe jq regex capture
+# Safely parse fields and isolate pure IPv4 addresses using jq array logic
 jq -r '
   .relays[] |
   select(.flags != null and (.flags | index("Authority") != null)) |
   .nickname as $nick |
-  .fingerprint as $fp |
   (.running // false) as $running |
   (.advertised_bandwidth // 0) as $bw |
   (.country // "xx") as $country |
   (.first_seen // "") as $first_seen |
-  (.or_addresses[]?) as $addr |
-  # Extract IPv4 address specifically
-  ($addr | capture("^(?<ip>[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+):(?<port>[0-9]+)$")) as $matched |
-  select($matched != null) |
-  "\($nick) \($running) \($bw) \($country) \($first_seen) \($matched.ip) \($matched.port)"
+  # Find the first valid IPv4 or_address entry
+  (.or_addresses[]? | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+:[0-9]+$"))) as $addr |
+  ($addr | split(":")[0]) as $ip |
+  ($addr | split(":")[1]) as $port |
+  "\($nick)|\($running)|\($bw)|\($country)|\($first_seen)|\($ip)|\($port)"
 ' "$JSON_RAW" > "$PARSED_AUTH"
 
 rm -f "$JSON_RAW"
@@ -48,7 +47,8 @@ TOTAL_BW_BYTES=0
 
 echo "[*] Probing Directory Authorities..."
 
-while read -r nick running bw country first_seen ip port; do
+# Read safely using pipe delimiter '|' to prevent any whitespace or variable shifting issues
+while IFS='|' read -r nick running bw country first_seen ip port; do
   [ -z "$nick" ] && continue
   TOTAL_AUTH=$((TOTAL_AUTH + 1))
   TOTAL_BW_BYTES=$((TOTAL_BW_BYTES + bw))
