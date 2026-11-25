@@ -2,7 +2,7 @@
 
 Automated status monitor tracking health, reachability, country origin, uptime, bandwidth, and response latencies of official **Tor Directory Authorities** via GitHub Actions.
 
-- **Last Checked:** 2026-11-25 12:52:12 UTC
+- **Last Checked:** 2026-11-25 12:54:16 UTC
 - **Total Authorities Tracked:** 10
 - **Online / Responding:** 0 / 10
 - **Total Advertised Bandwidth:** 17.48 MB/s
