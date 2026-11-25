@@ -23,7 +23,7 @@ jobs:
         run: |
           git config --local user.email "scriptzteam@gmail.com"
           git config --local user.name "scriptzteam"
-          git add README.md STATS.md
+          git add README.md STATS.md .last_modified
           if ! git diff --cached --quiet; then
             echo "Changes detected, committing..."
             git commit -m "Update Tor Directory Authority status"
