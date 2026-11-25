@@ -18,9 +18,9 @@ PARSED_AUTH="dirauths_parsed.tmp"
 echo "[*] Downloading Onionoo details..."
 curl -sL "$ONIONOO_URL" -o "$JSON_RAW"
 
-echo "[*] Filtering Tor Directory Authorities (IPv4 & Uptime)..."
+echo "[*] Filtering Tor Directory Authorities (IPv4 & Real Uptime)..."
 
-# Safely parse uptime, checking both object paths or defaulting to live consensus state
+# Extract exact uptime history string or compute string, and correct ORPort
 jq -r '
   .relays[] |
   select(.flags != null and (.flags | index("Authority") != null)) |
@@ -29,22 +29,19 @@ jq -r '
   (.running // false) as $running |
   (.advertised_bandwidth // 0) as $bw |
   (.country // "xx") as $country |
-  # Safely handle uptime fields (fallback to 1.0/100% if running and uptime key is missing)
+  # Extract uptime string (1w or fallback to running status)
   (
     if .uptime != null and .uptime["1w"] != null then 
       .uptime["1w"] 
-    elif $running then 
-      1.0 
     else 
-      0.0 
+      0 
     end
-  ) as $uptime_val |
-  ($uptime_val * 100) as $uptime_pct |
+  ) as $uptime_fraction |
   (.or_addresses[]?) as $addr |
   ($addr | sub("^\\["; "") | sub("]:[0-9]+$"; "") | sub(":[0-9]+$"; "")) as $ip |
   select(($ip | contains(".")) and (($ip | contains(":")) | not)) |
   ($addr | capture(":(?<port>[0-9]+)$").port) as $port |
-  "\($nick) \($fp) \($running) \($bw) \($country) \($uptime_pct) \($ip) \($port)"
+  "\($nick) \($fp) \($running) \($bw) \($country) \($uptime_fraction) \($ip) \($port)"
 ' "$JSON_RAW" > "$PARSED_AUTH"
 
 rm -f "$JSON_RAW"
@@ -57,27 +54,27 @@ TOTAL_BW_BYTES=0
 
 echo "[*] Probing Directory Authorities..."
 
-while read -r nick fp running bw country uptime_pct ip port; do
+while read -r nick fp running bw country uptime_fraction ip port; do
   [ -z "$nick" ] && continue
   TOTAL_AUTH=$((TOTAL_AUTH + 1))
   TOTAL_BW_BYTES=$((TOTAL_BW_BYTES + bw))
 
-  # Format advertised bandwidth to MB/s
+  # Format advertised bandwidth to match MiB/s or MB/s
   if [ "$bw" -gt 0 ]; then
-    bw_formatted=$(awk -v b="$bw" 'BEGIN {printf "%.2f MB/s", b / 1000000}')
+    bw_formatted=$(awk -v b="$bw" 'BEGIN {printf "%.2f MB/s", b / 1048576}')
   else
     bw_formatted="0.00 MB/s"
   fi
 
-  # Format uptime percentage
-  uptime_formatted=$(awk -v u="$uptime_pct" 'BEGIN {printf "%.1f%%", u}')
+  # Convert uptime fraction to a clean percentage or format nicely
+  uptime_pct=$(awk -v u="$uptime_fraction" 'BEGIN {printf "%.1f%%", u * 100}')
   country_upper=$(echo "$country" | tr '[:lower:]' '[:upper:]')
   
   status="🔴 Offline"
   latency="N/A"
 
   if [ "$running" = "true" ]; then
-    # Primary Check: High-precision TCP socket probe
+    # Primary Check: High-precision TCP socket probe on the exact ORPort
     start_ns=$(date +%s%N)
     if timeout 3 nc -z -w 3 "$ip" "$port" &>/dev/null; then
       end_ns=$(date +%s%N)
@@ -103,21 +100,21 @@ while read -r nick fp running bw country uptime_pct ip port; do
     fi
   fi
 
-  TABLE_ROWS+="| \`$nick\` | \`$ip:$port\` | $country_upper | $uptime_formatted | $bw_formatted | $status | $latency |"$'\n'
+  TABLE_ROWS+="| \`$nick\` | \`$ip:$port\` | $country_upper | $uptime_pct | $bw_formatted | $status | $latency |"$'\n'
 
 done < "$PARSED_AUTH"
 
 rm -f "$PARSED_AUTH"
 
 # Format total combined bandwidth
-TOTAL_BW_FORMATTED=$(awk -v b="$TOTAL_BW_BYTES" 'BEGIN {printf "%.2f MB/s", b / 1000000}')
+TOTAL_BW_FORMATTED=$(awk -v b="$TOTAL_BW_BYTES" 'BEGIN {printf "%.2f MB/s", b / 1048576}')
 
 echo "[*] Generating README.md dashboard..."
 
 cat << EOF > "${PREFIX}README.md"
 # 🛡️ Tor Directory Authority Watcher
 
-Automated status monitor tracking health, reachability, country origin, 1-week uptime, bandwidth, and response latencies of official **Tor Directory Authorities** via GitHub Actions.
+Automated status monitor tracking health, reachability, country origin, uptime, bandwidth, and response latencies of official **Tor Directory Authorities** via GitHub Actions.
 
 - **Last Checked:** $TIMESTAMP
 - **Total Authorities Tracked:** $TOTAL_AUTH
