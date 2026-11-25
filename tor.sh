@@ -18,9 +18,9 @@ PARSED_AUTH="dirauths_parsed.tmp"
 echo "[*] Downloading Onionoo details..."
 curl -sL "$ONIONOO_URL" -o "$JSON_RAW"
 
-echo "[*] Filtering Tor Directory Authorities (IPv4 & Uptime calculation)..."
+echo "[*] Filtering Tor Directory Authorities (IPv4 & Clean Parsing)..."
 
-# Extract fields safely, calculating approximate uptime duration from first_seen date
+# Strictly isolate IPv4 address and exact OR port using safe jq regex capture
 jq -r '
   .relays[] |
   select(.flags != null and (.flags | index("Authority") != null)) |
@@ -31,10 +31,10 @@ jq -r '
   (.country // "xx") as $country |
   (.first_seen // "") as $first_seen |
   (.or_addresses[]?) as $addr |
-  ($addr | sub("^\\["; "") | sub("]:[0-9]+$"; "") | sub(":[0-9]+$"; "")) as $ip |
-  select(($ip | contains(".")) and (($ip | contains(":")) | not)) |
-  ($addr | capture(":(?<port>[0-9]+)$").port) as $port |
-  "\($nick) \($fp) \($running) \($bw) \($country) \($first_seen) \($ip) \($port)"
+  # Extract IPv4 address specifically
+  ($addr | capture("^(?<ip>[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+):(?<port>[0-9]+)$")) as $matched |
+  select($matched != null) |
+  "\($nick) \($running) \($bw) \($country) \($first_seen) \($matched.ip) \($matched.port)"
 ' "$JSON_RAW" > "$PARSED_AUTH"
 
 rm -f "$JSON_RAW"
@@ -48,7 +48,7 @@ TOTAL_BW_BYTES=0
 
 echo "[*] Probing Directory Authorities..."
 
-while read -r nick fp running bw country first_seen ip port; do
+while read -r nick running bw country first_seen ip port; do
   [ -z "$nick" ] && continue
   TOTAL_AUTH=$((TOTAL_AUTH + 1))
   TOTAL_BW_BYTES=$((TOTAL_BW_BYTES + bw))
@@ -60,8 +60,8 @@ while read -r nick fp running bw country first_seen ip port; do
     bw_formatted="0.00 MB/s"
   fi
 
-  # Calculate human-readable age/uptime from first_seen (format: YYYY-MM-DD HH:MM:SS)
-  uptime_str="100.0%"
+  # Calculate human-readable age/uptime from first_seen
+  uptime_str="Unknown"
   if [ -n "$first_seen" ]; then
     seen_epoch=$(date -d "$first_seen" +%s 2>/dev/null || echo 0)
     if [ "$seen_epoch" -gt 0 ]; then
@@ -161,4 +161,4 @@ else
   ' "$STATS_MD" > stats_tmp.md && mv stats_tmp.md "$STATS_MD"
 fi
 
-echo "[+] Success! Directory Authority status report updated with clean age/uptime tracking."
+echo "[+] Success! Directory Authority status report updated."
