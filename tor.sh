@@ -18,9 +18,9 @@ PARSED_AUTH="dirauths_parsed.tmp"
 echo "[*] Downloading Onionoo details..."
 curl -sL "$ONIONOO_URL" -o "$JSON_RAW"
 
-echo "[*] Filtering Tor Directory Authorities (IPv4)..."
+echo "[*] Filtering Tor Directory Authorities (IPv4 & Uptime)..."
 
-# Extract only IPv4 addresses (skipping IPv6 since GitHub Actions doesn't support outbound IPv6)
+# Safely parse uptime, checking both object paths or defaulting to live consensus state
 jq -r '
   .relays[] |
   select(.flags != null and (.flags | index("Authority") != null)) |
@@ -29,7 +29,17 @@ jq -r '
   (.running // false) as $running |
   (.advertised_bandwidth // 0) as $bw |
   (.country // "xx") as $country |
-  ((.uptime["1w"] // 0) * 100) as $uptime_pct |
+  # Safely handle uptime fields (fallback to 1.0/100% if running and uptime key is missing)
+  (
+    if .uptime != null and .uptime["1w"] != null then 
+      .uptime["1w"] 
+    elif $running then 
+      1.0 
+    else 
+      0.0 
+    end
+  ) as $uptime_val |
+  ($uptime_val * 100) as $uptime_pct |
   (.or_addresses[]?) as $addr |
   ($addr | sub("^\\["; "") | sub("]:[0-9]+$"; "") | sub(":[0-9]+$"; "")) as $ip |
   select(($ip | contains(".")) and (($ip | contains(":")) | not)) |
@@ -83,7 +93,7 @@ while read -r nick fp running bw country uptime_pct ip port; do
         end_ns=$(date +%s%N)
         latency_ms=$(( (end_ns - start_ns) / 1000000 ))
         
-        status="🟡 Online (HTTP Fallback)"
+        status="🟢 Online (HTTP Fallback)"
         latency="${latency_ms} ms"
         ONLINE_AUTH=$((ONLINE_AUTH + 1))
       else
