@@ -1,4 +1,4 @@
-name: Update Tor Relays Data
+name: Update Tor Directory Authorities Health Data
 
 on:
   schedule:
