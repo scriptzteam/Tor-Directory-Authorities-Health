@@ -100,7 +100,7 @@ TOTAL_BW_FORMATTED=$(awk -v b="$TOTAL_BW_BYTES" 'BEGIN {printf "%.2f MB/s", b / 
 echo "[*] Generating README.md dashboard..."
 
 cat << EOF > "${PREFIX}README.md"
-# 🛡️ Tor Directory Authority Watcher
+# 🛡️ Tor Directory Authority Health
 
 Automated status monitor tracking health, reachability, country origin, bandwidth, and response latencies of official **Tor Directory Authorities**.
 
