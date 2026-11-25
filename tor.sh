@@ -18,9 +18,9 @@ PARSED_AUTH="dirauths_parsed.tmp"
 echo "[*] Downloading Onionoo details..."
 curl -sL "$ONIONOO_URL" -o "$JSON_RAW"
 
-echo "[*] Filtering Tor Directory Authorities..."
+echo "[*] Filtering Tor Directory Authorities (IPv4)..."
 
-# Extract nickname, fingerprint, running status, advertised bandwidth, country, 1-week uptime fraction, IP, and port
+# Extract only IPv4 addresses (skipping IPv6 since GitHub Actions doesn't support outbound IPv6)
 jq -r '
   .relays[] |
   select(.flags != null and (.flags | index("Authority") != null)) |
@@ -32,6 +32,7 @@ jq -r '
   ((.uptime["1w"] // 0) * 100) as $uptime_pct |
   (.or_addresses[]?) as $addr |
   ($addr | sub("^\\["; "") | sub("]:[0-9]+$"; "") | sub(":[0-9]+$"; "")) as $ip |
+  select(($ip | contains(".")) and (($ip | contains(":")) | not)) |
   ($addr | capture(":(?<port>[0-9]+)$").port) as $port |
   "\($nick) \($fp) \($running) \($bw) \($country) \($uptime_pct) \($ip) \($port)"
 ' "$JSON_RAW" > "$PARSED_AUTH"
